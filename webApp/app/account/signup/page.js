@@ -148,13 +148,13 @@ function Signup() {
   };
 
   const handleFormSubmit = async (e) => {
-    setCurrentStep(-1)
     e.preventDefault();
 
     if (!validateForm()) {
       return;
     }
 
+    setCurrentStep(-1);
     const stream = await camera.requestPermission();
     if (stream) {
       setCurrentStep(1);

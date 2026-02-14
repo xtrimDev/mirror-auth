@@ -14,7 +14,30 @@ import useFaceDetection from '@hooks/auth/useFaceDetection';
 import CameraView from '@components/CameraView';
 import ProgressBar from '@components/ProgressBar';
 
-import { authenticateFace } from '@lib/api/faceAuthLogin';
+const authenticateFace = async function (imageData) {
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image: imageData,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Authentication failed');
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Face authentication error:', error);
+    throw error;
+  }
+}
 
 export default function Login() {
   const [step, setStep] = useState('intro');

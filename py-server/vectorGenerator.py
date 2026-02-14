@@ -1,6 +1,7 @@
 from facenet_pytorch import MTCNN, InceptionResnetV1
 from PIL import Image
 import torch
+import os
 
 # Face detector + aligner
 mtcnn = MTCNN(image_size=160, margin=0)
@@ -8,14 +9,19 @@ mtcnn = MTCNN(image_size=160, margin=0)
 # FaceNet model
 model = InceptionResnetV1(pretrained='vggface2').eval()
 
-def get_embedding(img_path):
-    img = Image.open(img_path).convert("RGB")
+def get_embedding(uploadedFiles):
+    face_embeddings = []
 
-    face = mtcnn(img)
-    if face is None:
-        return None
+    for fp in uploadedFiles:
+        img = Image.open(os.path.join("upload", fp)).convert("RGB")
 
-    with torch.no_grad():
-        embedding = model(face.unsqueeze(0))  # [1, 512]
+        face = mtcnn(img)
+        if face is not None:
+            with torch.no_grad():
+                embedding = model(face.unsqueeze(0)) 
 
-    return embedding.squeeze(0)  # [512]
+            face_embeddings.append(embedding.squeeze(0)) 
+        face_embeddings.append(None)
+
+    return face_embeddings;
+        
