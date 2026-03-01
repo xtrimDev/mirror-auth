@@ -21,6 +21,9 @@ def get_embedding(uploadedFiles):
                 embedding = model(face.unsqueeze(0)) 
 
             face_embeddings.append(embedding.squeeze(0)) 
+        else :
+            raise ValueError("Face Not Found in image") 
+
         face_embeddings.append(None)
 
     return face_embeddings;

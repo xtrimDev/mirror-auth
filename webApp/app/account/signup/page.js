@@ -128,7 +128,7 @@ function Signup() {
     if (!formData.email.trim()) {
       errors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.email = 'Invalid email format';
+      errors.email = 'The email is invalid';
     }
 
     if (!formData.mobileNumber.trim()) {

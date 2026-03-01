@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "chromadb": "^3.3.1",
+    "crypto": "^1.0.1",
     "face-api.js": "^0.20.0",
     "framer-motion": "^11",
     "lucide-react": "^0.562.0",
