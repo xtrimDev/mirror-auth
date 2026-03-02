@@ -1,13 +1,23 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from "crypto";
-import {client} from "@dbClient"
+import { chromaClient, users } from "@dbClient"
+
+class RegError extends Error {
+  constructor(message, statusCode = 500, errorType = "SERVER_ERROR", extra = {}) {
+    super(message);
+    this.statusCode = statusCode;
+    this.errorType = errorType;
+    this.extra = extra;
+  }
+}
 
 export async function POST(request) {
   try {
     /** collect all data coming from the frontend */
     const incomingFormData = await request.formData();
 
-    /** collect all other data except faceImages */
+    /** extract all data along with faceImages */
+    const faceImages = incomingFormData.getAll("faceImages");
     const userData = {};
 
     for (const [key, value] of incomingFormData.entries()) {
@@ -16,93 +26,159 @@ export async function POST(request) {
       }
     }
 
-    /** Input validation */
-    const fullName = userData['fullName']?.trim();
-    const email = userData['email']?.trim();
-    const mobileNumber = userData['mobileNumber']?.trim();
+    /** Input Form validation */
+    userData.fullName = userData.fullName?.trim();
+    userData.email = userData.email?.trim();
+    userData.mobileNumber = userData.mobileNumber?.trim();
 
-    if (fullName == '' || email == '' || mobileNumber == '') {
-      throw new Error("Something is missing")
+    const { fullName, email, mobileNumber } = userData;
+
+    const errors = {};
+
+    const isEmpty = (value) => !value || value === "";
+
+    if (isEmpty(fullName)) {
+      errors.fullName = "Full name is required";
+    } else if (fullName.length < 3) {
+      errors.fullName = "Minimum length of name should be 3";
+    } else if (fullName.length > 25) {
+      errors.fullName = "Maximum length of name should be 25";
     }
 
-    if (fullName.length < 3) {
-      throw new Error("Minimum length of name should be 3");
+    if (isEmpty(email)) {
+      errors.email = "Email is required";
+    } else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
+      errors.email = "The email is invalid";
     }
 
-    if (fullName.length > 25) {
-      throw new Error("Maximum length of name should be 25");
+    if (isEmpty(mobileNumber)) {
+      errors.mobileNumber = "Mobile number is required";
+    } else if (!/^[0-9]{10}$/.test(mobileNumber)) {
+      errors.mobileNumber = "The mobile number is invalid";
     }
 
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!emailRegex.test(email)) {
-      throw new Error("The email is invalid");
+    if (Object.keys(errors).length > 0) {
+      throw new RegError(
+        "Validation failed",
+        400,
+        "VALIDATION_ERROR",
+        errors
+      );
     }
 
-    const mobileRegex = /^[0-9]{10}$/
-    if (!mobileRegex.test(mobileNumber)) {
-      throw new Error("The Mobile number is invalid");
-    }
-
-    /** validate the faces in Image and Generate the face embedding  */
-    const faceImages = incomingFormData.getAll("faceImages");
-
+    /** Input image validation */
     if (faceImages.length != 3) {
-      throw new Error("Exactly 3 images are needed.");
+      throw new RegError(
+        "Validation failed",
+        400,
+        "IMAGE_ERROR",
+        { error: "Exactly 3 images are needed." }
+      )
     }
 
-    // creating form data and making request for embedding generation from python server
-    const pythonFormData = new FormData();
+    //check if email already exists?
+    let userCount = await users.countDocuments({
+      $or: [
+        { email: email },
+        { mobileNumber: mobileNumber }
+      ]
+    });
+
+    if (userCount > 0) {
+      throw new RegError(
+        "Validation failed",
+        400,
+        "INPUT_ERROR",
+        { error: "The email or Mobile Number is already registered." }
+      );
+    }
+
+    // generating face embedding 
+    const formData = new FormData();
     faceImages.forEach((file) => {
-      pythonFormData.append("files", file);
+      formData.append("files", file);
     });
 
-    const res = await fetch(`${process.env.PYTHON_SERVER_URL}/register`, {
+    const pyres = await fetch(`${process.env.PYTHON_SERVER_URL}/register`, {
       method: "POST",
-      body: pythonFormData,
+      body: formData,
     });
 
-    if (!res.ok) {
-      throw new Error("Failed to register user");
+    if (!pyres.ok) {
+      throw new RegError(
+        "Internal Server Error",
+        500,
+        "SERVER_ERROR",
+        { error: "Face Embeddings didn't get generated." }
+      );
     }
 
-    const data = await res.json();
-    if (!data.success) {
-      throw new Error(data.error);
+    const pydt = await pyres.json();
+    if (!pydt.success) {
+      throw new RegError(
+        "Embedding generation Failed",
+        417,
+        "FACE_ERROR",
+        { error: pydt.error }
+      );
     }
 
-    /**Perfroming db actions */
-    async function storeEmbedding(data) {
-      await client.heartbeat();
+    /**check if face is already registered? */
+    await chromaClient.heartbeat();
 
-      const collection = await client.getOrCreateCollection({
-        name: process.env.CHROMA_CLIENT_DB,
-        embeddingFunction: null
-      });
+    const collection = await chromaClient.getOrCreateCollection({
+      name: process.env.CHROMA_CLIENT_DB,
+      embeddingFunction: null
+    })
 
-      const id = randomUUID();
+    const result = await collection.query({
+      nResults: 1,
+      queryEmbeddings: [pydt.embeddings]
+    })
 
-      await collection.add({
-        ids: [id],
-        embeddings: [data.data],  
-        documents: [JSON.stringify(data.userData)]    
-      });
+    const distance = result.distances[0]
+    const THRESHOLD = 0.70;
 
-      console.log("Stored successfully");
+    if (result.ids[0].length > 0 && distance < THRESHOLD)  {
+      throw new RegError(
+        "Face Already Registered",
+        400,
+        "FACE_ERROR",
+        { error: pydt.error }
+      );
     }
 
-    data['userData'] = userData;
-    await storeEmbedding(data)
+    const userId = randomUUID();
+
+    //Register user in mongoDB.
+    const user = new users({
+      userId,
+      fullName,
+      email,
+      mobileNumber
+    });
+
+    await user.save();
+
+    //Register user's face embedding in ChromaDB
+    await collection.add({
+      ids: [userId],
+      embeddings: [pydt.embeddings]   
+    });
 
     return NextResponse.json(
       { success: true },
       { status: 200 }
     )
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Something went wrong";
-
     return NextResponse.json(
-      { success: false, error: message },
-      { status: 400 }
+      {
+        success: false,
+        message: error.message,
+        type: error.errorType || "UNKNOWN_ERROR",
+        extra: error.extra || null
+      },
+      { status: error.statusCode || 500 }
     );
   }
 }

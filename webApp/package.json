@@ -14,9 +14,12 @@
     "face-api.js": "^0.20.0",
     "framer-motion": "^11",
     "lucide-react": "^0.562.0",
+    "mongodb": "^7.1.0",
+    "mongoose": "^9.2.3",
     "next": "^16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-toastify": "^11.0.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

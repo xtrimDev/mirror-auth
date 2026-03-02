@@ -55,10 +55,10 @@ async def register_new_user(files: List[UploadFile] = File(...)):
         #Return the face embedding
         return {
             "success": True,
-            "data": avgFaceEmbedding.tolist()
+            "embeddings": avgFaceEmbedding.tolist()
         }
     except ValueError as e :
-        #remove files after vectors are generated.
+        #remove files if error
         for fp in uploadedFiles:
             os.remove(os.path.join("upload", fp))
             
