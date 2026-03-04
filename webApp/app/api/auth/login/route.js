@@ -1,6 +1,7 @@
 import { chromaClient, users } from '@dbClient';
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 class LogError extends Error {
   constructor(message, statusCode = 500, errorType = "SERVER_ERROR") {
@@ -69,28 +70,42 @@ export async function POST(request) {
       );
     }
 
-    const user = await users.findOne({userId: `${result.ids[0][0]}`});
+    const user = await users.findOne({ userId: `${result.ids[0][0]}` });
 
     if (user == null) {
-      await collection.delete({ids: [`${result.ids[0][0]}`]})
-      
+      await collection.delete({ ids: [`${result.ids[0][0]}`] })
+
       throw new LogError(
         "Face is Not Registered yet.",
         400,
         "NOT_REGISTERED"
       )
-    }  
-    
+    }
+
     /** JWT TOKEN */
     const token = jwt.sign(user.toObject(), process.env.JWT_SECRET_KEY);
 
-    const response = NextResponse.json({ success: true }, { status: 200 });
+    const key = crypto.createHash('sha256')
+      .update(process.env.AES_SECRET_KEY)
+      .digest();
 
-    response.cookies.set("authToken", token, {
+    const iv = crypto.randomBytes(16);
+
+    const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+
+    let encrypted = cipher.update(token, "utf8", "hex");
+    encrypted += cipher.final("hex");
+
+    const encryptedToken = iv.toString("hex") + ":" + encrypted;
+
+    const response = NextResponse.json({ success: true, token: encryptedToken }, { status: 200 });
+
+    response.cookies.set("authToken", encryptedToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      path: "/"
+      path: "/",
+      maxAge: 2 * 24 * 60 * 60, // 2 days in seconds
     });
 
     return response;

@@ -7,7 +7,7 @@ const chromaClient = new ChromaClient({
     ssl: false
 });
 
-mongoose.connect("mongodb://localhost:27017/OAuth")
+mongoose.connect("mongodb://localhost:27017/" + process.env.CHROMA_CLIENT_DB)
     .then(() => console.log("Mongo connected"))
     .catch(err => console.log("Mongo error:", err));
 
@@ -18,5 +18,19 @@ const userSchema = new Schema({
     mobileNumber: { type: String, required: true, unique: true }
 });
 
+const applicationSchema = new Schema({
+    createdBy: {type: String, required: true},
+    name: { type: String, required: true },
+    description: { type: String, default: "" },
+    appUrl: { type: String, required: true },
+    redirectUrl: { type: String, required: true },
+    logo: { type: String, required: true },
+    clientId: { type: String, required: true, unique: true },
+    clientSecret: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+});
+
 const users = mongoose.models.Users || mongoose.model("Users", userSchema);
-export { chromaClient, users };
+const Application = mongoose.models.Application || mongoose.model("Application", applicationSchema);
+
+export { chromaClient, users, Application };

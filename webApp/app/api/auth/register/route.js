@@ -158,6 +158,8 @@ export async function POST(request) {
       mobileNumber
     });
 
+    await user.save()
+
     //Register user's face embedding in ChromaDB
     await collection.add({
       ids: [userId],
