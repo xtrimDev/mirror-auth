@@ -61,11 +61,6 @@ function useFaceDetection(videoRef, isActive) {
         // Load only the TinyFaceDetector model (smallest and fastest)
         await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
         
-        // Alternatively, you can use SSD MobileNet for better accuracy:
-        // await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
-        
-        // Or use MTCNN for best accuracy (slower):
-        // await faceapi.nets.mtcnn.loadFromUri(MODEL_URL);
 
         modelsLoadedRef.current = true;
         isInitializedRef.current = true;

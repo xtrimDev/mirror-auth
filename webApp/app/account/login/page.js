@@ -14,30 +14,62 @@ import useFaceDetection from '@hooks/auth/useFaceDetection';
 import CameraView from '@components/CameraView';
 import ProgressBar from '@components/ProgressBar';
 
+import base64ToBlob from '@base64ToBlob';
+
+import { toast } from "react-toastify";
+
 const authenticateFace = async function (imageData) {
   try {
+    const formDataPayload = new FormData();
+
+    const blob = base64ToBlob(imageData);
+    const file = new File([blob], `face_1.jpg`, { type: blob.type });
+    formDataPayload.append("image", file);
+
     const response = await fetch('/api/auth/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image: imageData,
-      }),
+      body: formDataPayload
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || 'Authentication failed');
+      handleAuthError(data);   // show specific error toast
+      throw new Error(data?.message || "Authentication failed");
     }
 
+    toast.success("Authentication successful");
     return data;
+
   } catch (error) {
-    console.error('Face authentication error:', error);
     throw error;
   }
-}
+};
+
+const handleAuthError = (data) => {
+  const errorType = data?.type;
+
+  switch (errorType) {
+    case "FACE_ERROR":
+      toast.error("Face not detected properly. Try again.");
+      break;
+
+    case "NOT_REGISTERED":
+      toast.warning("Face not registered. Please sign up first.");
+      break;
+
+    case "SERVER_ERROR":
+      toast.error("Server error. Please try later.");
+      break;
+
+    case "UNKNOWN_ERROR":
+      toast.error("Unexpected error occurred.");
+      break;
+
+    default:
+      toast.error(data?.message || "Authentication failed.");
+  }
+};
 
 export default function Login() {
   const [step, setStep] = useState('intro');
@@ -75,7 +107,7 @@ export default function Login() {
             }
             return prev + 10;
           });
-        }, 40); 
+        }, 40);
       }
     } else {
       // Reset progress if face is not centered
@@ -91,7 +123,7 @@ export default function Login() {
   useEffect(() => {
     if (
       step === 'scanning' &&
-      isFaceCentered && 
+      isFaceCentered &&
       scanProgress >= 100 &&
       camera.videoReady &&
       !autoCaptureDoneRef.current
@@ -99,7 +131,7 @@ export default function Login() {
       autoCaptureDoneRef.current = true;
       setTimeout(() => {
         captureFace();
-      }, 500); 
+      }, 500);
     }
   }, [isFaceCentered, scanProgress, camera.videoReady, step]);
 

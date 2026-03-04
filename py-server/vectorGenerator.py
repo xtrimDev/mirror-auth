@@ -15,6 +15,17 @@ def get_embedding(uploadedFiles):
     for fp in uploadedFiles:
         img = Image.open(os.path.join("upload", fp)).convert("RGB")
 
+
+        #check if more than one face?
+        boxes, _ = mtcnn.detect(img)
+
+        if boxes is None:
+            raise ValueError("Face Not Found in image")
+
+        if len(boxes) > 1:
+            raise ValueError("Multiple faces detected in image")
+
+        #if only one face detected
         face = mtcnn(img)
         if face is not None:
             with torch.no_grad():

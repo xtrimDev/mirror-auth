@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Camera, ThumbsUp, AlertCircle, Loader2, User, Mail, Building, CheckCircle, Phone } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from "react-toastify";
 
 import useCamera from '@hooks/auth/useCamera'
 import WireframePattern from '@components/WireframePattern';
@@ -13,20 +14,7 @@ import useFaceDetection from '@hooks/auth/useFaceDetection';
 import CameraView from '@components/CameraView';
 import ProgressBar from '@components/ProgressBar';
 
-// Helper function to convert base64 to Blob
-function base64ToBlob(base64) {
-  const parts = base64.split(';base64,');
-  const contentType = parts[0].split(':')[1];
-  const raw = window.atob(parts[1]);
-  const rawLength = raw.length;
-  const uInt8Array = new Uint8Array(rawLength);
-
-  for (let i = 0; i < rawLength; ++i) {
-    uInt8Array[i] = raw.charCodeAt(i);
-  }
-
-  return new Blob([uInt8Array], { type: contentType });
-}
+import base64ToBlob from '@base64ToBlob';
 
 function Signup() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -71,7 +59,7 @@ function Signup() {
       autoCaptureDoneRef.current = true;
       setTimeout(() => {
         handleCapture();
-      }, 500); 
+      }, 500);
     }
   }, [isFaceCentered, scanProgress, camera.videoReady, currentStep, captureCount, waitingForNextCapture]);
 
@@ -188,7 +176,7 @@ function Signup() {
       }
       setScanProgress(100);
       camera.stopCamera();
-      handleRegistration(newCapturedImages); 
+      handleRegistration(newCapturedImages);
     } else {
       // Stop camera after each capture
       camera.stopCamera();
@@ -224,50 +212,84 @@ function Signup() {
       formDataPayload.append("mobileNumber", formData.mobileNumber);
       formDataPayload.append("timestamp", new Date().toISOString());
 
-      // Append all 3 captured images to the FormData
       images.forEach((img, index) => {
         const blob = base64ToBlob(img);
         const file = new File([blob], `face_${index + 1}.jpg`, { type: blob.type });
         formDataPayload.append("faceImages", file);
       });
 
-      console.log(`Making API call with ${images.length} images`);
-
       const response = await fetch("/api/auth/register", {
         method: "POST",
         body: formDataPayload
       });
 
-      // Check if response is JSON
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         const text = await response.text();
         console.error("Non-JSON response:", text);
-        throw new Error(`Server error: Expected JSON but got ${contentType}. Check server logs.`);
+        throw new Error("Server error. Please try again.");
       }
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Registration failed');
+
+        let errorMessage = data.message || "Registration failed";
+
+        switch (data.type) {
+
+          case "VALIDATION_ERROR":
+            toast.error("Please fix form errors");
+            setCurrentStep(0);
+            break;
+
+          case "IMAGE_ERROR":
+          case "INPUT_ERROR":
+            toast.error(data.extra?.error || errorMessage);
+            setCurrentStep(0);
+            break;
+
+          case "FACE_ERROR":
+            toast.error(data.extra?.error || errorMessage);
+
+            setCurrentStep(-1);
+            const stream = await camera.requestPermission();
+            if (stream) {
+              setCurrentStep(1);
+              setCaptureCount(0);
+              setCapturedImages([]);
+              setWaitingForNextCapture(false);
+              autoCaptureDoneRef.current = false;
+              setScanProgress(0);
+            }
+            break;
+
+          case "SERVER_ERROR":
+          case "UNKNOWN_ERROR":
+          default:
+            toast.error("Something went wrong. Please try again.");
+            break;
+        }
+
+        return;
       }
 
-      // Success
+      toast.success("Registration successful 🎉");
       camera.setError(null);
       setCurrentStep(2);
 
     } catch (err) {
       console.error("Registration error:", err);
-      camera.setError(err.message || "Registration failed. Please try again.");
 
-      // Reset to allow retry
+      toast.error("Network error. Please try again.");
+
+      // Reset camera state
       setCapturedImages([]);
       setCaptureCount(0);
       setScanProgress(0);
       setWaitingForNextCapture(false);
       autoCaptureDoneRef.current = false;
 
-      // Restart camera
       setTimeout(async () => {
         const stream = await camera.requestPermission();
         if (stream) {
@@ -477,23 +499,28 @@ function Signup() {
               <div className="text-center">
                 <div className="mb-4">
                   <h2 className="text-2xl font-bold mb-1">Face Registration</h2>
-                  <p className="text-white/60 text-sm">
-                    Capture {captureCount + 1} of 3 photos
-                  </p>
+                  {!isRegistering && (
+                    <p className="text-white/60 text-sm">
+                      Capture {captureCount + 1} of 3 photos
+                    </p>
+                  )}
+
                 </div>
 
-                <div className="relative mb-6 flex justify-center">
-                  <CameraView
-                    videoRef={camera.videoRef}
-                    videoReady={camera.videoReady}
-                    error={camera.error}
-                    onRetry={handleRetry}
-                    faceDetected={faceDetected}
-                    facePosition={facePosition}
-                    setupVideo={camera.setupVideo}
-                    showOverlay={true}
-                  />
-                </div>
+                {!isRegistering && (
+                  <div className="relative mb-6 flex justify-center">
+                    <CameraView
+                      videoRef={camera.videoRef}
+                      videoReady={camera.videoReady}
+                      error={camera.error}
+                      onRetry={handleRetry}
+                      faceDetected={faceDetected}
+                      facePosition={facePosition}
+                      setupVideo={camera.setupVideo}
+                      showOverlay={true}
+                    />
+                  </div>
+                )}
 
                 {/* Capture Progress Indicators */}
                 {capturedImages.length > 0 && (
@@ -541,18 +568,20 @@ function Signup() {
                   </div>
                 )}
 
-                <ProgressBar
-                  progress={scanProgress}
-                  label={
-                    waitingForNextCapture
-                      ? "Get ready for next photo..."
-                      : isFaceCentered
-                        ? "Face centered - Hold still..."
-                        : faceDetected
-                          ? "Center your face in the frame"
-                          : "Position your face in the frame"
-                  }
-                />
+                {!isRegistering && (
+                  <ProgressBar
+                    progress={scanProgress}
+                    label={
+                      waitingForNextCapture
+                        ? "Get ready for next photo..."
+                        : isFaceCentered
+                          ? "Face centered - Hold still..."
+                          : faceDetected
+                            ? "Center your face in the frame"
+                            : "Position your face in the frame"
+                    }
+                  />
+                )}
 
                 {/* Registration Processing */}
                 {isRegistering && (

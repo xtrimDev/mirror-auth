@@ -1,71 +1,107 @@
+import { chromaClient, users } from '@dbClient';
 import { NextResponse } from 'next/server';
+import jwt from 'jsonwebtoken';
+
+class LogError extends Error {
+  constructor(message, statusCode = 500, errorType = "SERVER_ERROR") {
+    super(message);
+    this.statusCode = statusCode;
+    this.errorType = errorType;
+  }
+}
 
 export async function POST(request) {
   try {
-    const { image } = await request.json();
+    const incomingFormData = await request.formData();
+    const image = incomingFormData.getAll("image");
 
-    if (!image) {
-      return NextResponse.json(
-        { success: false, error: 'No image provided' },
-        { status: 400 }
+    if (!image || image.length != 1) {
+      throw new LogError("No Face Image Provided.", 400, "IMAGE_NOT_FOUND");
+    }
+
+    const formData = new FormData();
+    formData.append("files", image[0]);
+
+    const pyres = await fetch(`${process.env.PYTHON_SERVER_URL}/generate`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!pyres.ok) {
+      throw new LogError(
+        "Internal Server Error",
+        500,
+        "SERVER_ERROR",
       );
     }
 
-    // Convert base64 to buffer if needed
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
-    const imageBuffer = Buffer.from(base64Data, 'base64');
+    const pydt = await pyres.json();
+    if (!pydt.success) {
+      throw new LogError(
+        "Embedding generation Failed",
+        417,
+        "FACE_ERROR",
+      );
+    }
 
-    // TODO: Implement your face recognition logic here
-    // Options:
-    // 1. Call external face recognition API (AWS Rekognition, Azure Face API, etc.)
-    // 2. Use your own ML model
-    // 3. Compare with stored face embeddings in database
+    /**check if face is registered? */
+    await chromaClient.heartbeat();
 
-    // Example: Call external face recognition service
-    // const faceRecognitionResult = await fetch('YOUR_FACE_API_URL', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${process.env.FACE_API_KEY}`
-    //   },
-    //   body: JSON.stringify({
-    //     image: base64Data,
-    //     // Add other required parameters
-    //   })
-    // });
+    const collection = await chromaClient.getOrCreateCollection({
+      name: process.env.CHROMA_CLIENT_DB,
+      embeddingFunction: null
+    })
 
-    // For now, simulate authentication
-    // Replace this with actual face recognition logic
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    const result = await collection.query({
+      nResults: 1,
+      queryEmbeddings: [pydt.embeddings]
+    })
 
-    // Simulate success/failure
-    const authenticated = Math.random() > 0.3;
+    const matchedId = result.ids?.[0]?.[0];
+    const distance = result.distances[0]
+    const THRESHOLD = process.env.FACE_THRESHOLD;
 
-    if (authenticated) {
-      // TODO: Generate JWT token or session
-      // TODO: Fetch user data from database
+    if (!matchedId || distance === undefined || !(result.ids[0].length > 0 && distance < THRESHOLD)) {
+      throw new LogError(
+        "Face is Not Registered yet.",
+        400,
+        "NOT_REGISTERED"
+      );
+    }
+
+    const user = await users.findOne({userId: `${result.ids[0][0]}`});
+
+    if (user == null) {
+      await collection.delete({ids: [`${result.ids[0][0]}`]})
       
-      return NextResponse.json({
-        success: true,
-        user: {
-          id: '123',
-          name: 'John Doe',
-          email: 'john@example.com'
-        },
-        token: 'fake-jwt-token' // Replace with real JWT
-      });
-    } else {
-      return NextResponse.json(
-        { success: false, error: 'Face not recognized' },
-        { status: 401 }
-      );
-    }
+      throw new LogError(
+        "Face is Not Registered yet.",
+        400,
+        "NOT_REGISTERED"
+      )
+    }  
+    
+    /** JWT TOKEN */
+    const token = jwt.sign(user.toObject(), process.env.JWT_SECRET_KEY);
 
+    const response = NextResponse.json({ success: true }, { status: 200 });
+
+    response.cookies.set("authToken", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/"
+    });
+
+    return response;
   } catch (error) {
-    console.error('Face authentication error:', error);
     return NextResponse.json(
-      { success: false, error: 'Authentication failed' },
-      { status: 500 }
+      {
+        success: false,
+        message: error.message,
+        type: error.errorType || "UNKNOWN_ERROR",
+      },
+      { status: error.statusCode || 500 }
     );
   }
 }

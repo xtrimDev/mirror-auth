@@ -99,7 +99,7 @@ export async function POST(request) {
       formData.append("files", file);
     });
 
-    const pyres = await fetch(`${process.env.PYTHON_SERVER_URL}/register`, {
+    const pyres = await fetch(`${process.env.PYTHON_SERVER_URL}/generate`, {
       method: "POST",
       body: formData,
     });
@@ -137,7 +137,7 @@ export async function POST(request) {
     })
 
     const distance = result.distances[0]
-    const THRESHOLD = 0.70;
+    const THRESHOLD = process.env.FACE_THRESHOLD;
 
     if (result.ids[0].length > 0 && distance < THRESHOLD)  {
       throw new RegError(
@@ -157,8 +157,6 @@ export async function POST(request) {
       email,
       mobileNumber
     });
-
-    await user.save();
 
     //Register user's face embedding in ChromaDB
     await collection.add({
