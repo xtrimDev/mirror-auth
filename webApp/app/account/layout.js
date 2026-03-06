@@ -1,7 +1,12 @@
+"use server";
+
+import { headers } from "next/headers";
+
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  console.log((await headers()).get("url"));
   return (
     <>
       {children}

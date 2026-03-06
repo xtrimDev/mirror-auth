@@ -5,7 +5,7 @@ import { Application } from "@dbClient";
 export async function GET(request, context) {
   try {
     const { id } = await context.params;
-    console.log(id);
+    // console.log(id);
     if (!mongoose.isValidObjectId(id)) {
       return NextResponse.json({ error: "Invalid app id" }, { status: 400 });
     }

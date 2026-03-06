@@ -9,6 +9,7 @@ import WireframePattern from '@components/WireframePattern';
 import Card from '@components/Card';
 import FaceIcon from '@components/FaceIcon';
 import StepIndicator from '@components/StepIndicator';
+import { useSearchParams } from 'next/navigation'
 
 import useFaceDetection from '@hooks/auth/useFaceDetection';
 import CameraView from '@components/CameraView';
@@ -18,60 +19,14 @@ import base64ToBlob from '@base64ToBlob';
 
 import { toast } from "react-toastify";
 
-const authenticateFace = async function (imageData) {
-  try {
-    const formDataPayload = new FormData();
-
-    const blob = base64ToBlob(imageData);
-    const file = new File([blob], `face_1.jpg`, { type: blob.type });
-    formDataPayload.append("image", file);
-
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      body: formDataPayload
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      handleAuthError(data);   // show specific error toast
-      throw new Error(data?.message || "Authentication failed");
-    }
-
-    toast.success("Authentication successful");
-    return data;
-
-  } catch (error) {
-    throw error;
-  }
-};
-
-const handleAuthError = (data) => {
-  const errorType = data?.type;
-
-  switch (errorType) {
-    case "FACE_ERROR":
-      toast.error("Face not detected properly. Try again.");
-      break;
-
-    case "NOT_REGISTERED":
-      toast.warning("Face not registered. Please sign up first.");
-      break;
-
-    case "SERVER_ERROR":
-      toast.error("Server error. Please try later.");
-      break;
-
-    case "UNKNOWN_ERROR":
-      toast.error("Unexpected error occurred.");
-      break;
-
-    default:
-      toast.error(data?.message || "Authentication failed.");
-  }
-};
-
 export default function Login() {
+  const searchParams = useSearchParams()
+
+  const [isAuthorization, setIsAuthorization] = useState(false);
+  const [AuthorizationQuery, setIsAuthorizationQuery] = useState("")
+  const [AuthorizationAppId, setAuthorizationAppId] = useState("")
+  const [AuthorizationRedirectURI, setAuthorizationRedirectURI] = useState("")
+
   const [step, setStep] = useState('intro');
   const [scanProgress, setScanProgress] = useState(0);
   const [capturedImage, setCapturedImage] = useState(null);
@@ -81,12 +36,79 @@ export default function Login() {
 
   const camera = useCamera();
 
+  const authenticateFace = async function (imageData) {
+    try {
+      const formDataPayload = new FormData();
+  
+      const blob = base64ToBlob(imageData);
+      const file = new File([blob], `face_1.jpg`, { type: blob.type });
+      formDataPayload.append("image", file);
+      
+      if (isAuthorization) {
+        formDataPayload.append("appId", AuthorizationAppId)
+        formDataPayload.append("redirectURI", AuthorizationRedirectURI)
+      }
+  
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        body: formDataPayload
+      });
+  
+      const data = await response.json();
+  
+      if (!response.ok) {
+        handleAuthError(data);   // show specific error toast
+        throw new Error(data?.message || "Authentication failed");
+      }
+  
+      toast.success("Authentication successful");
+      return data;
+  
+    } catch (error) {
+      throw error;
+    }
+  };
+  
+  const handleAuthError = (data) => {
+    const errorType = data?.type;
+  
+    switch (errorType) {
+      case "FACE_ERROR":
+        toast.error("Face not detected properly. Try again.");
+        break;
+  
+      case "NOT_REGISTERED":
+        toast.warning("Face not registered. Please sign up first.");
+        break;
+  
+      case "SERVER_ERROR":
+        toast.error("Server error. Please try later.");
+        break;
+  
+      case "UNKNOWN_ERROR":
+        toast.error("Unexpected error occurred.");
+        break;
+  
+      default:
+        toast.error(data?.message || "Authentication failed.");
+    }
+  };
+
   const { faceDetected, facePosition, isFaceCentered } = useFaceDetection(
     camera.videoRef,
     step === 'scanning' && camera.videoReady
   );
 
-  // Setup video when permission is granted
+  useEffect(() => {
+    if (searchParams.has('appId') && searchParams.has('redirectURI')) {
+      setIsAuthorization(true)
+
+      setIsAuthorizationQuery(`?appId=${searchParams.get("appId")}&redirectURI=${searchParams.get("redirectURI")}`)
+      setAuthorizationRedirectURI(searchParams.get("redirectURI"));
+      setAuthorizationAppId(searchParams.get("appId"))
+    }
+  }) 
+
   useEffect(() => {
     if (camera.permissionStatus === 'granted' && step === 'scanning') {
       camera.setupVideo();
@@ -200,7 +222,11 @@ export default function Login() {
       }
 
       setTimeout(() => {
-        window.location.href = '/dashboard';
+        if (isAuthorization) {
+        window.location.href = `${data.redirectUrl}?token=${data.token}`;
+        } else {
+          window.location.href = '/dashboard';
+        }
       }, 1500);
 
     } catch (error) {
@@ -274,7 +300,7 @@ export default function Login() {
 
                 <p className="text-white/60 text-xs mt-4">
                   Don't have an account?{' '}
-                  <Link href="/account/signup" className="text-[#00d4ff] hover:underline">
+                  <Link href={`/account/signup${AuthorizationQuery}`} className="text-[#00d4ff] hover:underline">
                     Register here
                   </Link>
                 </p>

@@ -30,7 +30,17 @@ const applicationSchema = new Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+const TokenSchema = new Schema({
+    createdBy: { type: String, required: true },
+    appId: { type: String, required: true },
+    token: { type: String, unique: true, required: true },
+    createdAt: { type: Date, default: Date.now }, 
+    expireAt: { type: Date, default: undefined }
+  });
+TokenSchema.index({ "expireAt": 1 }, { expireAfterSeconds: 0 });
+
 const users = mongoose.models.Users || mongoose.model("Users", userSchema);
 const Application = mongoose.models.Application || mongoose.model("Application", applicationSchema);
+const Token = mongoose.models.Token || mongoose.model("Token", TokenSchema);
 
-export { chromaClient, users, Application };
+export { chromaClient, users, Application, Token };

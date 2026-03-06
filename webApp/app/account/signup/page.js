@@ -15,8 +15,22 @@ import CameraView from '@components/CameraView';
 import ProgressBar from '@components/ProgressBar';
 
 import base64ToBlob from '@base64ToBlob';
+import { useSearchParams } from 'next/navigation';
 
 function Signup() {
+  const searchParams = useSearchParams()
+
+  const [isAuthorization, setIsAuthorization] = useState(false);
+  const [AuthorizationQuery, setIsAuthorizationQuery] = useState("")
+
+  useEffect(() => {
+    if (searchParams.has('appId') && searchParams.has('redirectURI')) {
+      setIsAuthorization(true)
+
+      setIsAuthorizationQuery(`?appId=${searchParams.get("appId")}&redirectURI=${searchParams.get("redirectURI")}`)
+    }
+  }) 
+
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({
     fullName: '',
@@ -274,7 +288,7 @@ function Signup() {
         return;
       }
 
-      toast.success("Registration successful 🎉");
+      toast.success("Registration successful");
       camera.setError(null);
       setCurrentStep(2);
 
@@ -420,7 +434,7 @@ function Signup() {
 
                 <p className="text-white/60 text-xs text-center mt-4">
                   Already have an account?{' '}
-                  <Link href='/account/login' className="text-[#00d4ff] hover:underline cursor-pointer">
+                  <Link href={`/account/login${AuthorizationQuery}`} className="text-[#00d4ff] hover:underline cursor-pointer">
                     Sign in here
                   </Link>
                 </p>
@@ -671,7 +685,7 @@ function Signup() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-white/50 text-xs">Mobile Number</p>
-                        <p className="text-white font-semibold">{formData.mobileNumber}</p>
+                        <p className="text-white font-semibold">*******{formData.mobileNumber.substring(7, 9)}</p>
                       </div>
                     </div>
                   </div>
@@ -687,7 +701,7 @@ function Signup() {
 
                 {/* Action Button */}
                 <button
-                  onClick={() => window.location.href = '/account/login'}
+                  onClick={() => window.location.href = `/account/login${AuthorizationQuery}`}
                   className="w-full py-4 bg-gradient-to-r from-[#00d4ff] to-[#00ff88] text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-[#00d4ff]/50 transition-all duration-200 active:scale-95 mb-3"
                 >
                   Continue to Login →

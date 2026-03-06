@@ -1,7 +1,8 @@
-import { chromaClient, users } from '@dbClient';
+import { Application, Token, chromaClient, users } from '@dbClient';
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import randToken from 'rand-token';
 
 class LogError extends Error {
   constructor(message, statusCode = 500, errorType = "SERVER_ERROR") {
@@ -19,6 +20,28 @@ export async function POST(request) {
     if (!image || image.length != 1) {
       throw new LogError("No Face Image Provided.", 400, "IMAGE_NOT_FOUND");
     }
+
+    let isAuthorization = true;
+    const appId = incomingFormData.getAll("appId");
+    const redirectURI = incomingFormData.getAll("redirectURI");
+
+    if (!appId || !redirectURI || appId?.length === 0 || redirectURI?.length === 0) {
+      isAuthorization = false;
+    } else {
+      // console.log(appId)
+      // console.log(redirectURI);
+      const req = await Application.findOne({
+        $and: [
+          { clientId: appId },
+          { redirectUrl: redirectURI }
+        ]
+      });
+
+      if (!req) {
+        throw new LogError("Invalid Client Id OR Redirect URL Provided.", 400, "INVALID_CLIENT");
+      }
+    }
+
 
     const formData = new FormData();
     formData.append("files", image[0]);
@@ -82,31 +105,48 @@ export async function POST(request) {
       )
     }
 
-    /** JWT TOKEN */
-    const token = jwt.sign(user.toObject(), process.env.JWT_SECRET_KEY);
+    /** CHECK IF USER ONLY WANT TO LOGIN OR AUTHROIRZATION */
+    let response;
+    if (!isAuthorization) {
+      /** JWT TOKEN */
+      const token = jwt.sign(user.toObject(), process.env.JWT_SECRET_KEY);
 
-    const key = crypto.createHash('sha256')
-      .update(process.env.AES_SECRET_KEY)
-      .digest();
+      const key = crypto.createHash('sha256')
+        .update(process.env.AES_SECRET_KEY)
+        .digest();
 
-    const iv = crypto.randomBytes(16);
+      const iv = crypto.randomBytes(16);
 
-    const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+      const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
 
-    let encrypted = cipher.update(token, "utf8", "hex");
-    encrypted += cipher.final("hex");
+      let encrypted = cipher.update(token, "utf8", "hex");
+      encrypted += cipher.final("hex");
 
-    const encryptedToken = iv.toString("hex") + ":" + encrypted;
+      const encryptedToken = iv.toString("hex") + ":" + encrypted;
 
-    const response = NextResponse.json({ success: true, token: encryptedToken }, { status: 200 });
+      response = NextResponse.json({ success: true, token: encryptedToken }, { status: 200 });
 
-    response.cookies.set("authToken", encryptedToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 2 * 24 * 60 * 60, // 2 days in seconds
-    });
+      response.cookies.set("authToken", encryptedToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 1 * 24 * 60 * 60, // 1 days in seconds
+      });
+    } else {
+      //generate token for login attached with the appID;
+      const token = randToken.generate(16, "qwertyuiopasdfghjklzxcvbnm1234567890@#$%&")
+      const newToken = new Token({
+        createdBy: user.userId,
+        appId: appId[0],
+        token: token,
+        expireAt: new Date(Date.now() + 60 * 1000)
+      });
+
+      await newToken.save();
+
+      response = NextResponse.json({success: true, token, redirectUrl: redirectURI}, {status: 200})
+    }
 
     return response;
   } catch (error) {
